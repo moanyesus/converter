@@ -15,7 +15,7 @@ from cleaner import DataCleaner
 from bank_configs import get_bank_config
 
 # ====================== CONFIG ======================
-st.set_page_config(page_title="Bank Extractor - Odoo 18", page_icon="🏦", layout="wide")
+st.set_page_config(page_title="SKAB Bank Extractor - Odoo 18", page_icon="🏦", layout="wide")
 
 st.markdown("""
 <style>
