@@ -147,39 +147,55 @@ if st.session_state.extraction_done and st.session_state.df_clean is not None:
         mime="text/csv"
     )
 
-    # ====================== ENVOI WEBHOOK ======================
-    st.subheader("🔗 Envoi vers Odoo")
-    odoo_url = get_odoo_webhook_url()
+       # ====================== ENVOI VERS ODOO ======================
+    st.subheader("🔗 Envoi vers Odoo 18")
 
-    if odoo_url:
-        st.success("✅ URL Webhook chargée depuis les Secrets")
-    else:
-        odoo_url = st.text_input("URL Webhook Odoo", placeholder="https://...")
+    odoo_url = st.secrets.get("ODOO_WEBHOOK_URL", "")
+    
+    if not odoo_url:
+        odoo_url = st.text_input(
+            "URL du Webhook Odoo", 
+            placeholder="https://votre-odoo.com/webhook/bank-statement-import"
+        )
 
-    journal_id = st.number_input("ID Journal Bancaire", value=get_odoo_journal_id(), min_value=1)
+    journal_id = st.number_input("ID du Journal Bancaire dans Odoo", value=8, min_value=1)
 
-    if st.button("🚀 Envoyer vers Odoo", type="primary"):
+    if st.button("🚀 Envoyer vers Odoo", type="primary", width="stretch"):
         if not odoo_url:
-            st.error("URL Webhook manquante")
+            st.error("❌ Veuillez configurer l'URL du webhook dans les Secrets Streamlit")
         else:
-            with st.spinner("Envoi en cours..."):
+            with st.spinner("Envoi vers Odoo en cours..."):
                 try:
+                    # Préparation du CSV
+                    export_df = df.rename(columns={
+                        'Date': 'date',
+                        'Libellé': 'name',
+                        'Référence': 'ref',
+                        'Débit': 'amount_debit',
+                        'Crédit': 'amount_credit'
+                    })
+                    
+                    if 'date' in export_df.columns:
+                        export_df['date'] = pd.to_datetime(
+                            export_df['date'], format='%d/%m/%Y', errors='coerce'
+                        ).dt.strftime('%Y-%m-%d')
+
+                    csv_data = export_df.to_csv(index=False, encoding='utf-8')
+
                     payload = {
                         "name": f"releve_{st.session_state.banque_selectionnee}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                         "bank_name": st.session_state.banque_selectionnee,
                         "date": datetime.now().strftime('%Y-%m-%d'),
-                        "csv_data": base64.b64encode(csv_buffer.getvalue().encode('utf-8')).decode('utf-8'),
+                        "csv_data": base64.b64encode(csv_data.encode('utf-8')).decode('utf-8'),
                         "journal_id": journal_id
                     }
 
                     response = requests.post(odoo_url, json=payload, timeout=30)
 
                     if response.status_code in (200, 201):
-                        st.success("✅ Envoyé avec succès à Odoo !")
+                        st.success("✅ Relevé envoyé avec succès à Odoo !")
                         st.json(response.json())
                     else:
-                        st.error(f"Erreur Odoo ({response.status_code})")
+                        st.error(f"Erreur Odoo ({response.status_code}): {response.text[:300]}")
                 except Exception as e:
-                    st.error(f"Erreur : {str(e)}")
-
-st.caption("Bank Statement Extractor v4.5 — Odoo 18 Enterprise")
+                    st.error(f"Erreur lors de l'envoi : {str(e)}")
