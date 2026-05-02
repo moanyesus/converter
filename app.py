@@ -160,42 +160,40 @@ if st.session_state.extraction_done and st.session_state.df_clean is not None:
 
     journal_id = st.number_input("ID du Journal Bancaire dans Odoo", value=8, min_value=1)
 
-    if st.button(" Envoyer vers Odoo", type="primary", width="stretch"):
-        if not odoo_url:
-            st.error("❌ Veuillez configurer l'URL du webhook dans les Secrets Streamlit")
-        else:
-            with st.spinner("Envoi vers Odoo en cours..."):
-                try:
-                    # Préparation du CSV
-                    export_df = df.rename(columns={
-                        'Date': 'date',
-                        'Libellé': 'name',
-                        'Référence': 'ref',
-                        'Débit': 'amount_debit',
-                        'Crédit': 'amount_credit'
-                    })
-                    
-                    if 'date' in export_df.columns:
-                        export_df['date'] = pd.to_datetime(
-                            export_df['date'], format='%d/%m/%Y', errors='coerce'
-                        ).dt.strftime('%Y-%m-%d')
+   if st.button("🚀 Envoyer vers Odoo", type="primary", use_container_width=True):
+    if not odoo_url:
+        st.error("❌ Veuillez configurer l'URL du webhook")
+    else:
+        with st.spinner("Envoi vers Odoo en cours..."):
+            try:
+                # 1. Préparation propre du DataFrame
+                export_df = df.copy()
+                export_df = export_df.rename(columns={
+                    'Date': 'date',
+                    'Libellé': 'name',
+                    'Référence': 'ref',
+                    'Débit': 'amount_debit',
+                    'Crédit': 'amount_credit'
+                })
+                
+                # 2. Formatage strict de la date pour Odoo
+                export_df['date'] = pd.to_datetime(export_df['date'], dayfirst=True).dt.strftime('%Y-%m-%d')
 
-                    csv_data = export_df.to_csv(index=False, encoding='utf-8')
+                # 3. Conversion en CSV texte (sans encodage base64 pour Odoo)
+                csv_data = export_df.to_csv(index=False, encoding='utf-8')
 
-                    payload = {
-                        "name": f"releve_{st.session_state.banque_selectionnee}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                        "bank_name": st.session_state.banque_selectionnee,
-                        "date": datetime.now().strftime('%Y-%m-%d'),
-                        "csv_data": base64.b64encode(csv_data.encode('utf-8')).decode('utf-8'),
-                        "journal_id": journal_id
-                    }
+                # 4. Construction du Payload simplifié
+                payload = {
+                    "journal_id": journal_id,
+                    "csv_data": csv_data  # Texte brut pour éviter l'erreur d'import base64
+                }
 
-                    response = requests.post(odoo_url, json=payload, timeout=30)
+                # 5. Envoi
+                response = requests.post(odoo_url, json=payload, timeout=30)
 
-                    if response.status_code in (200, 201):
-                        st.success("✅ Relevé envoyé avec succès à Odoo !")
-                        st.json(response.json())
-                    else:
-                        st.error(f"Erreur Odoo ({response.status_code}): {response.text[:300]}")
-                except Exception as e:
-                    st.error(f"Erreur lors de l'envoi : {str(e)}")
+                if response.status_code in (200, 201):
+                    st.success("✅ Relevé envoyé avec succès à Odoo !")
+                else:
+                    st.error(f"Erreur Odoo ({response.status_code}): {response.text}")
+            except Exception as e:
+                st.error(f"Erreur lors de l'envoi : {str(e)}")
