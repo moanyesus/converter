@@ -1,13 +1,12 @@
 """
-SKAB Bank Statement Extractor - Version Finale pour Odoo 18
-Optimisée avec Graphiques pour le DAF et Correction de Date
+SKAB Bank Statement Extractor - Edition Comptabilité Odoo 18
+Génère un CSV optimisé pour l'importation manuelle
 """
 
 import streamlit as st
 import pandas as pd
-import requests
 import io
-import plotly.express as px  # Pour les graphiques interactifs
+import plotly.express as px
 from datetime import datetime
 
 # Modules personnalisés
@@ -15,20 +14,17 @@ from extractor_gemini import GeminiExtractor
 from cleaner import DataCleaner
 
 # ====================== CONFIGURATION ======================
-st.set_page_config(page_title="SKAB Bank Extractor", page_icon="🏦", layout="wide")
+st.set_page_config(page_title="SKAB Extractor - Export Odoo", page_icon="🏦", layout="wide")
 
 st.markdown("""
 <style>
     .main-header { background: linear-gradient(135deg, #1B3A5C, #2E75B6); padding: 2rem; border-radius: 16px; color: white; margin-bottom: 2rem; }
-    .stMetric { background: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #e0e0e0; }
+    .stMetric { background: #ffffff; padding: 15px; border-radius: 10px; border: 1px dotted #1B3A5C; }
 </style>
 """, unsafe_allow_html=True)
 
 def get_gemini_key():
     return st.secrets.get("GEMINI_API_KEY", "") or st.session_state.get("gemini_key_input", "")
-
-def get_odoo_webhook_url():
-    return st.secrets.get("ODOO_WEBHOOK_URL", "")
 
 if "extraction_done" not in st.session_state:
     st.session_state.update({
@@ -43,7 +39,9 @@ if "extraction_done" not in st.session_state:
 # ====================== SIDEBAR ======================
 with st.sidebar:
     st.title("🏦 SKAB Extractor")
-    uploaded_file = st.file_uploader("📄 Relevé PDF", type=["pdf"])
+    st.info("Mode : Génération CSV pour Import Manuel Odoo")
+    
+    uploaded_file = st.file_uploader("📄 Charger le relevé PDF", type=["pdf"])
     
     banque_sel = st.selectbox("Banque", [
         "Financial House S.A", "BGFI Bank", "UNICS", "CEPAC", "ADVANS",
@@ -51,7 +49,7 @@ with st.sidebar:
     ])
     st.session_state.banque_selectionnee = banque_sel
     
-    method = st.radio("Méthode", ["vision", "hybrid"])
+    method = st.radio("Méthode d'analyse", ["vision", "hybrid"])
     
     if st.button("🔄 Nouvelle extraction", use_container_width=True):
         for k in list(st.session_state.keys()):
@@ -59,18 +57,18 @@ with st.sidebar:
         st.rerun()
 
 # ====================== HEADER ======================
-st.markdown('<div class="main-header"><h1>🏦 SKAB Bank Statement Extractor</h1><p>Analyse Financière & Intégration Odoo 18</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>🏦 SKAB Bank Statement Extractor</h1><p>Génération de fichiers d\'importation pour la comptabilité</p></div>', unsafe_allow_html=True)
 
 # ====================== EXTRACTION ======================
 if uploaded_file and not st.session_state.extraction_done and not st.session_state.show_confirm:
-    if st.button("Lancer l'analyse", type="primary", use_container_width=True):
+    if st.button("🔍 Analyser le relevé", type="primary", use_container_width=True):
         st.session_state.pdf_bytes_cache = uploaded_file.read()
         st.session_state.show_confirm = True
         st.rerun()
 
 if st.session_state.show_confirm:
-    if st.button("✅ Confirmer l'extraction", type="primary", use_container_width=True):
-        with st.spinner("Analyse IA en cours..."):
+    if st.button("✅ Confirmer l'analyse IA", type="primary", use_container_width=True):
+        with st.spinner("Extraction des données comptables..."):
             try:
                 extractor = GeminiExtractor(api_key=get_gemini_key(), mode=method, banque_nom=st.session_state.banque_selectionnee)
                 df_raw = extractor.extract(st.session_state.pdf_bytes_cache)
@@ -86,85 +84,57 @@ if st.session_state.show_confirm:
             except Exception as e:
                 st.error(f"Erreur : {str(e)}")
 
-# ====================== TABLEAU DE BORD DAF ======================
+# ====================== ESPACE COMPTABILITÉ ======================
 if st.session_state.extraction_done and st.session_state.df_clean is not None:
-    df = st.session_state.df_clean.copy()
+    # Travail sur une copie pour le formatage
+    df_display = st.session_state.df_clean.copy()
     
-    # 1. Nettoyage des dates pour l'affichage et les graphiques
-    df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y', errors='coerce')
-    df = df.dropna(subset=['Date'])
+    # Nettoyage strict des dates pour Odoo (YYYY-MM-DD)
+    df_display['Date'] = pd.to_datetime(df_display['Date'], dayfirst=True, errors='coerce')
+    df_display = df_display.dropna(subset=['Date'])
     
-    # 2. Métriques principales
+    # Métriques pour le DAF
     stats = st.session_state.stats
     m1, m2, m3 = st.columns(3)
     m1.metric("Total Crédits", f"{stats.get('total_credit', 0):,.0f} FCFA")
     m2.metric("Total Débits", f"{stats.get('total_debit', 0):,.0f} FCFA")
-    m3.metric("Solde Net Flux", f"{(stats.get('total_credit', 0) - stats.get('total_debit', 0)):,.0f} FCFA")
+    m3.metric("Lignes à importer", len(df_display))
 
-    # 3. GRAPHIQUE POUR LE DAF
-    st.subheader("📊 Analyse visuelle des flux")
-    tab1, tab2 = st.tabs(["📈 Courbe des flux", "💰 Répartition Débit/Crédit"])
-    
-    with tab1:
-        # Evolution temporelle
-        df_daily = df.groupby('Date')[['Débit', 'Crédit']].sum().reset_index()
-        fig_line = px.line(df_daily, x='Date', y=['Débit', 'Crédit'], 
-                           title="Évolution des mouvements bancaires",
-                           color_discrete_map={"Débit": "#E74C3C", "Crédit": "#2ECC71"},
-                           markers=True)
-        st.plotly_chart(fig_line, use_container_width=True)
-        
-    with tab2:
-        # Graphique en barres comparatif
-        flux_totals = pd.DataFrame({
-            'Type': ['Débits', 'Crédits'],
-            'Montant': [stats.get('total_debit', 0), stats.get('total_credit', 0)]
-        })
-        fig_bar = px.bar(flux_totals, x='Type', y='Montant', color='Type',
-                         color_discrete_map={"Débits": "#E74C3C", "Crédits": "#2ECC71"},
-                         text_auto='.2s')
-        st.plotly_chart(fig_bar, use_container_width=True)
+    # --- SECTION GRAPHIQUES ---
+    st.subheader("📊 Aperçu des flux de trésorerie")
+    df_chart = df_display.groupby('Date')[['Débit', 'Crédit']].sum().reset_index()
+    fig = px.area(df_chart, x='Date', y=['Crédit', 'Débit'], 
+                  title="Mouvements bancaires cumulés",
+                  color_discrete_map={"Débit": "#E74C3C", "Crédit": "#2ECC71"},
+                  barmode='group')
+    st.plotly_chart(fig, use_container_width=True)
 
-    # 4. TABLEAU DE DONNÉES
-    st.subheader("📋 Détail des transactions")
-    st.dataframe(df.sort_values('Date'), use_container_width=True)
-
-    # 5. ENVOI VERS ODOO
+    # --- SECTION EXPORT ---
     st.divider()
-    st.subheader("🔗 Exportation vers Odoo 18")
+    st.subheader("💾 Préparation du fichier Odoo")
     
-    c1, c2 = st.columns(2)
-    with c1: 
-        odoo_url = get_odoo_webhook_url() or st.text_input("URL Webhook Odoo")
-    with c2: 
-        journal_id = st.number_input("ID Journal Odoo", value=8)
+    # Création du DataFrame spécial Odoo
+    # Odoo 18 préfère une colonne unique 'Montant' ou deux colonnes explicites
+    odoo_df = df_display.copy()
+    odoo_df['Date'] = odoo_df['Date'].dt.strftime('%Y-%m-%d')
+    
+    # Ajout d'une colonne montant unique (Crédit - Débit) très utile pour Odoo
+    odoo_df['Montant_Net'] = odoo_df['Crédit'].fillna(0) - odoo_df['Débit'].fillna(0)
+    
+    st.info("💡 Le fichier généré inclut une colonne 'Montant_Net' qui combine Débits et Crédits pour faciliter le mapping Odoo.")
+    st.dataframe(odoo_df, use_container_width=True)
 
-    if st.button("🚀 Synchroniser avec Odoo", type="primary", use_container_width=True):
-        if not odoo_url:
-            st.error("URL manquante.")
-        else:
-            with st.spinner("Envoi..."):
-                try:
-                    # Préparation finale : Formatage ISO pour Odoo
-                    export_df = df.copy()
-                    export_df = export_df.rename(columns={
-                        'Date': 'date', 'Libellé': 'name', 'Référence': 'ref',
-                        'Débit': 'amount_debit', 'Crédit': 'amount_credit'
-                    })
-                    export_df['date'] = export_df['date'].dt.strftime('%Y-%m-%d')
-                    
-                    # Envoi en texte brut pour éviter les erreurs d'import Odoo
-                    payload = {
-                        "journal_id": journal_id,
-                        "csv_data": export_df.to_csv(index=False),
-                        "bank_name": st.session_state.banque_selectionnee
-                    }
-                    
-                    res = requests.post(odoo_url, json=payload, timeout=30)
-                    if res.status_code in (200, 201):
-                        st.success("✅ Données transmises à Odoo !")
-                        st.balloons()
-                    else:
-                        st.error(f"Erreur Odoo : {res.text}")
-                except Exception as e:
-                    st.error(f"Échec : {str(e)}")
+    # Bouton de téléchargement
+    csv_buffer = io.StringIO()
+    odoo_df.to_csv(csv_buffer, index=False, encoding='utf-8-sig') # utf-8-sig pour compatibilité Excel
+    
+    st.download_button(
+        label="📥 Télécharger le fichier CSV pour Odoo",
+        data=csv_buffer.getvalue(),
+        file_name=f"IMPORT_ODOO_{st.session_state.banque_selectionnee}_{datetime.now().strftime('%d_%m_%H%M')}.csv",
+        mime="text/csv",
+        type="primary",
+        use_container_width=True
+    )
+
+    st.success("✅ Fichier prêt ! Allez dans Odoo > Comptabilité > Journal Banque > Favoris > Importer des enregistrements.")
