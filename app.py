@@ -122,29 +122,44 @@ if st.session_state.extraction_done and st.session_state.df_clean is not None:
     fig.update_layout(hovermode="x unified", yaxis_title="Montant (FCFA)")
     
     st.plotly_chart(fig, use_container_width=True)
-    # --- SECTION EXPORT ---
+   # --- SECTION EXPORT OPTIMISÉE POUR ODOO ---
     st.divider()
-    st.subheader("💾 Préparation du fichier Odoo")
+    st.subheader("💾 Exportation prête pour Odoo")
     
-    # Création du DataFrame spécial Odoo
-    # Odoo 18 préfère une colonne unique 'Montant' ou deux colonnes explicites
-    odoo_df = df_display.copy()
-    odoo_df['Date'] = odoo_df['Date'].dt.strftime('%Y-%m-%d')
+    # 1. Préparation du DataFrame avec les noms de champs Odoo standards
+    # Cela permet à Odoo de reconnaître automatiquement les colonnes
+    odoo_export = df_display.copy()
     
-    # Ajout d'une colonne montant unique (Crédit - Débit) très utile pour Odoo
-    odoo_df['Montant_Net'] = odoo_df['Crédit'].fillna(0) - odoo_df['Débit'].fillna(0)
+    # Mapping des colonnes vers les termes techniques Odoo
+    odoo_export = odoo_export.rename(columns={
+        'Date': 'date',            # Reconnu par Odoo
+        'Libellé': 'payment_ref',  # Champ standard pour la communication bancaire
+        'Référence': 'ref'         # Champ de référence optionnel
+    })
     
-    st.info("💡 Le fichier généré inclut une colonne 'Montant_Net' qui combine Débits et Crédits pour faciliter le mapping Odoo.")
-    st.dataframe(odoo_df, use_container_width=True)
+    # 2. Calcul du montant unique signé (Crucial pour Odoo)
+    # Débit (sortie) = Négatif | Crédit (entrée) = Positif
+    odoo_export['amount'] = odoo_export['Crédit'].fillna(0) - odoo_export['Débit'].fillna(0)
+    
+    # 3. Nettoyage de la colonne référence
+    # Si c'est 0 ou vide, on laisse vide pour ne pas polluer Odoo
+    odoo_export['ref'] = odoo_export['ref'].replace(0, '').replace('0.0', '')
+
+    # 4. Sélection des colonnes essentielles uniquement
+    # On ne garde que ce dont Odoo a besoin pour éviter les erreurs de mapping
+    final_csv = odoo_export[['date', 'payment_ref', 'amount', 'ref']]
+    
+    st.dataframe(final_csv, use_container_width=True)
 
     # Bouton de téléchargement
     csv_buffer = io.StringIO()
-    odoo_df.to_csv(csv_buffer, index=False, encoding='utf-8-sig') # utf-8-sig pour compatibilité Excel
+    # On utilise l'encodage 'utf-8' simple car Odoo le gère très bien
+    final_csv.to_csv(csv_buffer, index=False, encoding='utf-8')
     
     st.download_button(
-        label="📥 Télécharger le fichier CSV pour Odoo",
+        label="📥 Télécharger le CSV optimisé pour Odoo",
         data=csv_buffer.getvalue(),
-        file_name=f"IMPORT_ODOO_{st.session_state.banque_selectionnee}_{datetime.now().strftime('%d_%m_%H%M')}.csv",
+        file_name=f"ODOO_READY_{st.session_state.banque_selectionnee}.csv",
         mime="text/csv",
         type="primary",
         use_container_width=True
