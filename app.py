@@ -151,15 +151,17 @@ if st.session_state.extraction_done and st.session_state.df_clean is not None:
     
     st.dataframe(final_csv, use_container_width=True)
 
-    # Bouton de téléchargement
+   # Bouton de téléchargement optimisé pour Excel + Odoo
     csv_buffer = io.StringIO()
-    # On utilise l'encodage 'utf-8' simple car Odoo le gère très bien
-    final_csv.to_csv(csv_buffer, index=False, encoding='utf-8')
+    
+    # On force l'écriture avec un séparateur point-virgule (souvent mieux pour l'Excel français)
+    # OU on reste sur la virgule mais on ajoute l'encodage utf-8-sig
+    final_csv.to_csv(csv_buffer, index=False, encoding='utf-8-sig', sep=',')
     
     st.download_button(
-        label="📥 Télécharger le CSV optimisé pour Odoo",
+        label="📥 Télécharger le CSV final pour Odoo",
         data=csv_buffer.getvalue(),
-        file_name=f"ODOO_READY_{st.session_state.banque_selectionnee}.csv",
+        file_name=f"IMPORT_ODOO_{st.session_state.banque_selectionnee}.csv",
         mime="text/csv",
         type="primary",
         use_container_width=True
